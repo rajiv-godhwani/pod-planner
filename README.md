@@ -12,10 +12,10 @@ Open `index.html` in a browser. No install, no build, no backend.
   - Max 7 members per pod
   - PTL has 4–9 direct reports
   - Pod spans at most 2 locations
-  - Same-location reports must earn less than their PTL
+  - Optional (on by default): same-location reports must earn less than their PTL. Turn it off to work without comp data
   - Optional: block reports who outrank their PTL
   - Skill balance warning when a pod's average skill is off the org average by more than 0.5
-- Load your own roster as CSV: `name, rank, location, skill, comp`
+- Load your own roster as CSV: `name, rank, location, skill, comp`. Comp can be blank, or the column left out, when the comp check is off
 - Export the plan as CSV
 - Export an org chart (PNG or SVG) showing name, rank and location only. Comp and skill are left out.
 

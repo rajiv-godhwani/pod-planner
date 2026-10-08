@@ -161,6 +161,7 @@ button{cursor:pointer}
     <button class="btn" id="importBtn">Load CSV</button>
     <button class="btn" id="exportBtn">Copy plan as CSV</button>
     <button class="btn" id="chartBtn">Org chart</button>
+    <label class="toggle"><input type="checkbox" id="compRule"> Check comp: reports earn less than their PTL</label>
     <label class="toggle"><input type="checkbox" id="rankRule"> Block reports who outrank their PTL</label>
     <span class="legend">S1 = highly skilled · S4 = least skilled · tap a person, then “Place here” (or drag)</span>
   </div>
@@ -211,7 +212,8 @@ const RANKS=['O','AO','AD','D','ED'];
 const RANK_NAME={O:'Officer',AO:'Authorized Officer',AD:'Associate Director',D:'Director',ED:'Executive Director'};
 const rn=p=>RANKS.indexOf(p.rank)+1;
 const CUR={Pune:v=>'₹'+v+'L',Zurich:v=>'CHF '+v+'k',London:v=>'£'+v+'k',Wroclaw:v=>'PLN '+v+'k'};
-const fmtComp=p=>(CUR[p.loc]||(v=>String(v)))(p.comp);
+const hasComp=p=>typeof p.comp==='number'&&p.comp>0;
+const fmtComp=p=>hasComp(p)?(CUR[p.loc]||(v=>String(v)))(p.comp):'—';
 const locCode=l=>({Pune:'PUN',Zurich:'ZRH',London:'LON',Wroclaw:'WRO'}[l]||l.slice(0,3).toUpperCase());
 
 function mulberry(a){return()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
@@ -247,9 +249,9 @@ function defaultPods(){
 
 /* ---------- state ---------- */
 const KEY='crew-pod-planner-v1';
-let S={people:sample(),pods:defaultPods(),assign:{},rankRule:false,selected:null,locFilter:'All',sort:'skill'};
+let S={people:sample(),pods:defaultPods(),assign:{},rankRule:false,compRule:true,selected:null,locFilter:'All',sort:'skill'};
 try{const s=JSON.parse(localStorage.getItem(KEY)||'null');if(s&&s.people&&s.pods){Object.assign(S,s,{selected:null})}}catch(e){}
-function save(){try{localStorage.setItem(KEY,JSON.stringify({people:S.people,pods:S.pods,assign:S.assign,rankRule:S.rankRule,locFilter:S.locFilter,sort:S.sort}))}catch(e){}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify({people:S.people,pods:S.pods,assign:S.assign,rankRule:S.rankRule,compRule:S.compRule,locFilter:S.locFilter,sort:S.sort}))}catch(e){}}
 
 const byId=id=>S.people.find(p=>p.id===id);
 const membersOf=podId=>S.people.filter(p=>S.assign[p.id]===podId);
@@ -279,7 +281,8 @@ function validate(){
     if(pp.length>3)iss.push({lvl:'err',pods:pp,msg:`${ptl.name} leads ${pp.length} pods — max is 3`});
     if(reps.length<4||reps.length>9)iss.push({lvl:'err',pods:pp,msg:`${ptl.name} has ${reps.length} direct reports — needs 4–9`});
     reps.forEach(r=>{
-      if(r.loc===ptl.loc&&r.comp>=ptl.comp)iss.push({lvl:'err',pods:[S.assign[r.id]],person:r.id,msg:`${r.name} (${fmtComp(r)}) earns ≥ PTL ${ptl.name} (${fmtComp(ptl)}), same location`});
+      if(S.compRule&&r.loc===ptl.loc&&(!hasComp(r)||!hasComp(ptl)))iss.push({lvl:'warn',pods:[S.assign[r.id]],person:r.id,msg:`Can't check comp: missing for ${!hasComp(ptl)?'PTL '+ptl.name:r.name}`});
+      else if(S.compRule&&r.loc===ptl.loc&&r.comp>=ptl.comp)iss.push({lvl:'err',pods:[S.assign[r.id]],person:r.id,msg:`${r.name} (${fmtComp(r)}) earns ≥ PTL ${ptl.name} (${fmtComp(ptl)}), same location`});
       if(S.rankRule&&rn(r)>rn(ptl))iss.push({lvl:'err',pods:[S.assign[r.id]],person:r.id,msg:`${r.name} (${r.rank}) outranks PTL ${ptl.name} (${ptl.rank})`});
     });
   });
@@ -291,8 +294,8 @@ function autoAssign(){
   S.assign={};S.pods.forEach(p=>p.ptl=null);
   const locs=[...new Set(S.people.map(p=>p.loc))];
   const locCount=l=>S.people.filter(p=>p.loc===l).length;
-  const maxComp={};locs.forEach(l=>maxComp[l]=Math.max(...S.people.filter(p=>p.loc===l).map(p=>p.comp)));
-  const score=p=>rn(p)*10+(5-p.skill)+2*p.comp/maxComp[p.loc];
+  const maxComp={};locs.forEach(l=>maxComp[l]=Math.max(...S.people.filter(p=>p.loc===l).map(p=>hasComp(p)?p.comp:0),1));
+  const score=p=>rn(p)*10+(5-p.skill)+(S.compRule&&hasComp(p)?2*p.comp/maxComp[p.loc]:0);
   const cands=S.people.filter(p=>rn(p)>=4).sort((a,b)=>score(b)-score(a));
   const k=Math.min(cands.length,S.pods.length,Math.max(Math.ceil(S.pods.length/3),Math.ceil((S.people.length-S.pods.length)/8)));
   const chosen=[];
@@ -313,7 +316,7 @@ function autoAssign(){
       if(m.length>=Math.min(7,Math.ceil(9/npods))||reps>=9)return;
       const ls=new Set([ptl.loc,...m.map(x=>x.loc)]);const newLoc=!ls.has(p.loc);
       if(newLoc&&ls.size>=2)return;
-      if(p.loc===ptl.loc&&p.comp>=ptl.comp)return;
+      if(S.compRule&&p.loc===ptl.loc&&hasComp(p)&&hasComp(ptl)&&p.comp>=ptl.comp)return;
       if(S.rankRule&&rn(p)>rn(ptl))return;
       const s=m.length*10+m.reduce((t,x)=>t+(5-x.skill),0)+(newLoc?12:0);
       if(s<bs){bs=s;best=pod.id}
@@ -352,7 +355,7 @@ function render(){
     <div class="stat"><b>${b.length}</b><span>Bench</span></div>
     <div class="stat ${errs.length?'e':'g'}"><b>${errs.length}</b><span>Breaches</span></div>
     <div class="stat ${warns.length?'w':'g'}"><b>${warns.length}</b><span>Warnings</span></div>`;
-  document.getElementById('rankRule').checked=S.rankRule;
+  document.getElementById('rankRule').checked=S.rankRule;document.getElementById('compRule').checked=S.compRule;
 
   const ch=document.getElementById('checks');const wasOpen=ch.open;
   ch.innerHTML=`<summary>Rule checks — ${errs.length} breach${errs.length===1?'':'es'}, ${warns.length} warning${warns.length===1?'':'s'}</summary>`+
@@ -379,7 +382,7 @@ function render(){
   /* crews */
   const flagged=new Set(iss.filter(i=>i.person).map(i=>i.person));
   const sel=S.selected?byId(S.selected):null;
-  const ptlOpts=[...S.people].sort((a,b)=>rn(b)-rn(a)||a.loc.localeCompare(b.loc)||b.comp-a.comp);
+  const ptlOpts=[...S.people].sort((a,b)=>rn(b)-rn(a)||a.loc.localeCompare(b.loc)||(b.comp||0)-(a.comp||0));
   document.getElementById('crews').innerHTML=['A','B','C'].map(c=>{
     const pods=S.pods.filter(p=>p.crew===c);const heads=pods.reduce((t,p)=>t+membersOf(p.id).length,0);
     const leads=new Set(pods.map(p=>p.ptl).filter(Boolean)).size;
@@ -428,6 +431,7 @@ document.addEventListener('change',e=>{
   const t=e.target;
   if(t.id==='sortSel'){S.sort=t.value;render()}
   else if(t.id==='rankRule'){S.rankRule=t.checked;render()}
+  else if(t.id==='compRule'){S.compRule=t.checked;render()}
   else if(t.dataset.act==='crew'){S.pods.find(p=>p.id===t.dataset.pod).crew=t.value;render()}
   else if(t.dataset.act==='ptl'){const pod=S.pods.find(p=>p.id===t.dataset.pod);const v=t.value||null;if(v)delete S.assign[v];pod.ptl=v;render()}
 });
@@ -450,16 +454,18 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(!document.getEle
 
 const toCSV=rows=>rows.map(r=>r.map(v=>/[",\n]/.test(String(v))?`"${String(v).replace(/"/g,'""')}"`:v).join(',')).join('\n');
 document.getElementById('importBtn').onclick=()=>openModal('Load employee data',
-  'Paste CSV with a header row: name, rank, location, skill, comp. Rank is one of O, AO, AD, D, ED (or 1–5). Skill is 1–4. Comp is a number in local currency. Loading replaces the current plan.',
-  toCSV([['name','rank','location','skill','comp'],...S.people.map(p=>[p.name,p.rank,p.loc,p.skill,p.comp])]),
+  'Paste CSV with a header row: name, rank, location, skill, comp. Rank is one of O, AO, AD, D, ED (or 1–5). Skill is 1–4. Comp is a number in local currency'+(S.compRule?'. The comp check is on, so every row needs comp.':'; it can be blank, or the column can be left out, while the comp check is off.')+' Loading replaces the current plan.',
+  toCSV([['name','rank','location','skill','comp'],...S.people.map(p=>[p.name,p.rank,p.loc,p.skill,hasComp(p)?p.comp:''])]),
   [['Restore sample data',()=>{S.people=sample();S.pods=defaultPods();S.assign={};S.selected=null;render();close()}],['Cancel',close],['Load',()=>{
     try{const rows=parseCSV(M.x.value.trim());const h=rows.shift().map(x=>x.trim().toLowerCase());
-      const ix=k=>{const i=h.findIndex(x=>x.startsWith(k));if(i<0)throw new Error(`Missing “${k}” column`);return i};
-      const [ni,ri,li,si,ci]=[ix('name'),ix('rank'),ix('loc'),ix('skill'),ix('comp')];
+      const ix=(k,opt)=>{const i=h.findIndex(x=>x.startsWith(k));if(i<0&&!opt)throw new Error(`Missing “${k}” column`+(k==='comp'?'. Turn off “Check comp” to load without it.':''));return i};
+      const [ni,ri,li,si,ci]=[ix('name'),ix('rank'),ix('loc'),ix('skill'),ix('comp',!S.compRule)];
       const ppl=rows.filter(r=>r.length>1&&r[ni]).map((r,k)=>{let rank=r[ri].trim().toUpperCase();if(/^[1-5]$/.test(rank))rank=RANKS[+rank-1];
         if(!RANKS.includes(rank))throw new Error(`Row ${k+2}: rank “${r[ri]}” must be O, AO, AD, D or ED`);
         const skill=+r[si];if(!(skill>=1&&skill<=4))throw new Error(`Row ${k+2}: skill must be 1–4`);
-        const comp=+String(r[ci]).replace(/[^0-9.]/g,'');if(!comp)throw new Error(`Row ${k+2}: comp must be a number`);
+        const raw=ci<0?'':String(r[ci]??'').trim();let comp=null;
+        if(raw){comp=+raw.replace(/[^0-9.]/g,'');if(!comp)throw new Error(`Row ${k+2}: comp “${raw}” must be a number`);}
+        else if(S.compRule)throw new Error(`Row ${k+2}: comp is blank. Turn off “Check comp” to allow blanks.`);
         return {id:'u'+(k+1),name:r[ni].trim(),rank,loc:r[li].trim(),skill:Math.round(skill),comp}});
       if(!ppl.length)throw new Error('No rows found');
       S.people=ppl;S.assign={};S.pods.forEach(p=>p.ptl=null);S.selected=null;render();close();
@@ -473,9 +479,9 @@ function parseCSV(s){const out=[];let row=[],f='',q=false;for(let i=0;i<s.length
 document.getElementById('exportBtn').onclick=()=>{
   const rows=[['name','rank','location','skill','comp','crew','pod','role','reports_to']];
   S.pods.forEach(pod=>{const ptl=byId(pod.ptl);
-    if(ptl)rows.push([ptl.name,ptl.rank,ptl.loc,ptl.skill,ptl.comp,pod.crew,pod.name,'PTL','']);
-    membersOf(pod.id).forEach(p=>rows.push([p.name,p.rank,p.loc,p.skill,p.comp,pod.crew,pod.name,'Member',ptl?ptl.name:'']))});
-  bench().forEach(p=>rows.push([p.name,p.rank,p.loc,p.skill,p.comp,'','','Bench','']));
+    if(ptl)rows.push([ptl.name,ptl.rank,ptl.loc,ptl.skill,hasComp(ptl)?ptl.comp:'',pod.crew,pod.name,'PTL','']);
+    membersOf(pod.id).forEach(p=>rows.push([p.name,p.rank,p.loc,p.skill,hasComp(p)?p.comp:'',pod.crew,pod.name,'Member',ptl?ptl.name:'']))});
+  bench().forEach(p=>rows.push([p.name,p.rank,p.loc,p.skill,hasComp(p)?p.comp:'','','','Bench','']));
   const txt=toCSV(rows);
   openModal('Plan as CSV','Paste into Excel or Sheets. A PTL leading two pods appears once per pod.',txt,[['Close',close],['Copy',()=>{
     navigator.clipboard.writeText(M.x.value).then(()=>{M.m.className='msg ok';M.m.textContent='Copied.'}).catch(()=>{M.x.select();M.m.textContent='Copy was blocked here — the text is selected, press Ctrl/Cmd+C.'})},true]]);
