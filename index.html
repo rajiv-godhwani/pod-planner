@@ -1,0 +1,563 @@
+<title>Crew Pod Planner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: planning board — bench on the left, three crew lanes of pod cards on the right; rule checks summarised up top */
+:root{
+  --bg:#eceff3; --surface:#ffffff; --sunk:#f5f7fa; --ink:#16202c; --muted:#5b6778; --line:#d3dae3;
+  --accent:#2747c9; --accent-ink:#ffffff; --accent-soft:#e3e9fd;
+  --crewA:#a86a12; --crewB:#0d766d; --crewC:#83398a;
+  --err:#bf3328; --err-soft:#fbe7e5; --warn:#9a5e00; --warn-soft:#fbf0dc; --ok:#2b7437; --ok-soft:#e2f2e4;
+  --f-display:"Archivo","Helvetica Neue",Arial,sans-serif;
+  --f-body:"Archivo","Helvetica Neue",Arial,sans-serif;
+  --f-data:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0e1319; --surface:#171f29; --sunk:#121922; --ink:#e4e9f0; --muted:#94a1b2; --line:#2a3644;
+  --accent:#86a0ff; --accent-ink:#0e1319; --accent-soft:#1f2a4a;
+  --crewA:#e2aa52; --crewB:#45c2b4; --crewC:#cd88d2;
+  --err:#ff7f73; --err-soft:#3a1c1b; --warn:#f2a945; --warn-soft:#352711; --ok:#73c982; --ok-soft:#183020;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e1319; --surface:#171f29; --sunk:#121922; --ink:#e4e9f0; --muted:#94a1b2; --line:#2a3644;
+  --accent:#86a0ff; --accent-ink:#0e1319; --accent-soft:#1f2a4a;
+  --crewA:#e2aa52; --crewB:#45c2b4; --crewC:#cd88d2;
+  --err:#ff7f73; --err-soft:#3a1c1b; --warn:#f2a945; --warn-soft:#352711; --ok:#73c982; --ok-soft:#183020;
+  color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:14px;line-height:1.45}
+.wrap{max-width:1500px;margin:0 auto;padding:20px 16px 110px}
+h1{font-family:var(--f-display);font-weight:800;font-size:1.7rem;letter-spacing:-.02em;margin:0;text-wrap:balance}
+h2{font-family:var(--f-display);font-size:1.05rem;font-weight:700;margin:0}
+.sub{color:var(--muted);margin:4px 0 0}
+.mono,.num{font-family:var(--f-data);font-variant-numeric:tabular-nums}
+button,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.top{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;justify-content:space-between}
+.stats{display:flex;flex-wrap:wrap;gap:8px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:6px 12px;min-width:84px}
+.stat b{display:block;font-family:var(--f-data);font-size:1.15rem}
+.stat span{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.stat.e b{color:var(--err)} .stat.w b{color:var(--warn)} .stat.g b{color:var(--ok)}
+
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:16px 0}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:7px 12px;font-weight:600}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.toggle{display:flex;gap:6px;align-items:center;font-size:.85rem;color:var(--muted);padding:0 4px}
+.legend{font-size:.8rem;color:var(--muted);margin-left:auto}
+
+.checks{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin-bottom:16px}
+.checks summary{cursor:pointer;font-weight:700;font-family:var(--f-display)}
+.checks ul{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:4px;max-height:220px;overflow:auto}
+.checks li{display:flex;gap:8px;align-items:baseline;font-size:.86rem}
+.tag{font-family:var(--f-data);font-size:.72rem;font-weight:600;padding:1px 6px;border-radius:4px;white-space:nowrap}
+.tag.err{background:var(--err-soft);color:var(--err)} .tag.warn{background:var(--warn-soft);color:var(--warn)}
+.checks a{color:var(--accent);font-family:var(--f-data);font-size:.78rem;text-decoration:none}
+.allgood{color:var(--ok);font-weight:600}
+
+.board{display:grid;grid-template-columns:300px minmax(0,1fr);gap:16px;align-items:start}
+@media (max-width:860px){.board{grid-template-columns:minmax(0,1fr)}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px;min-width:0}
+.panel + .panel{margin-top:12px}
+.bench-h{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px}
+.chips{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px}
+.chip{border:1px solid var(--line);background:var(--sunk);border-radius:999px;padding:2px 10px;font-size:.78rem}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.bench{list-style:none;margin:0;padding:0;display:grid;gap:2px;max-height:70vh;overflow:auto}
+.bench.drop{outline:2px dashed var(--accent);outline-offset:2px}
+.empty{color:var(--muted);font-size:.85rem;padding:8px 0}
+
+.person{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto auto;gap:6px;align-items:center;padding:4px 6px;border-radius:5px;font-size:.84rem}
+.person:hover{background:var(--sunk)}
+.person.sel{background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent)}
+.person.flag .pname::after{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--err);margin-left:6px;vertical-align:middle}
+.pname{background:none;border:0;padding:0;text-align:left;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.rk{font-family:var(--f-data);font-size:.72rem;color:var(--muted);width:2.2em}
+.lc{font-family:var(--f-data);font-size:.7rem;color:var(--muted)}
+.sk{font-family:var(--f-data);font-size:.7rem;font-weight:600;border-radius:4px;padding:0 5px;border:1px solid var(--accent);color:var(--accent)}
+.sk.s1{background:var(--accent);color:var(--accent-ink)}
+.sk.s2{background:var(--accent-soft)}
+.sk.s4{border-style:dashed}
+.cp{font-family:var(--f-data);font-size:.72rem;text-align:right;min-width:5.6em}
+.rm{background:none;border:0;color:var(--muted);font-size:1rem;line-height:1;padding:0 2px}
+.rm:hover{color:var(--err)}
+.pod .person{grid-template-columns:minmax(0,1fr) auto auto auto auto auto}
+
+.ptls{width:100%;border-collapse:collapse;font-size:.82rem}
+.ptls th{text-align:left;font-size:.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:600;padding:4px}
+.ptls td{padding:4px;border-top:1px solid var(--line)}
+.ptls .bad{color:var(--err);font-weight:700}
+
+.crew{margin-bottom:20px}
+.crew-h{display:flex;flex-wrap:wrap;gap:10px;align-items:baseline;margin-bottom:8px;padding-bottom:6px;border-bottom:2px solid var(--c)}
+.crew-h h2{color:var(--c)}
+.crew-h span{color:var(--muted);font-size:.82rem}
+.pods{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:12px}
+.pod{background:var(--surface);border:1px solid var(--line);border-top:3px solid var(--c);border-radius:8px;padding:10px 10px 8px;display:grid;gap:8px;min-width:0}
+.pod.bad{box-shadow:inset 3px 0 0 var(--err)}
+.pod.drop{outline:2px dashed var(--accent);outline-offset:2px}
+.pod-h{display:flex;align-items:center;gap:8px}
+.pod-name{font-family:var(--f-display);font-weight:800;font-size:1.2rem;color:var(--c)}
+.count{font-family:var(--f-data);font-size:.8rem;color:var(--muted)}
+.count.over{color:var(--err);font-weight:700}
+.pod-h select{margin-left:auto;font-size:.78rem;padding:2px 4px;border:1px solid var(--line);border-radius:4px;background:var(--sunk)}
+.ptl-row{display:flex;gap:8px;align-items:center;font-size:.78rem}
+.ptl-row span{font-weight:700;letter-spacing:.06em;color:var(--muted)}
+.ptl-row select{flex:1;min-width:0;padding:4px 6px;border:1px solid var(--line);border-radius:5px;background:var(--sunk);font-size:.82rem}
+.meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:.74rem;color:var(--muted)}
+.loc{font-family:var(--f-data);background:var(--sunk);border:1px solid var(--line);border-radius:4px;padding:0 5px}
+.loc.over{border-color:var(--err);color:var(--err)}
+.sbar{position:relative;flex:1;min-width:110px;height:16px}
+.sbar .track{position:absolute;left:0;right:0;top:7px;height:2px;background:var(--line)}
+.sbar .org{position:absolute;top:2px;width:1px;height:12px;background:var(--muted)}
+.sbar .dot{position:absolute;top:3px;width:10px;height:10px;margin-left:-5px;border-radius:50%;background:var(--accent)}
+.sbar .ends{position:absolute;top:-1px;font-family:var(--f-data);font-size:.6rem}
+.mem{list-style:none;margin:0;padding:0;display:grid;gap:1px}
+.add{border:1px dashed var(--accent);background:var(--accent-soft);color:var(--accent);border-radius:6px;padding:6px;font-weight:700}
+.iss{list-style:none;margin:0;padding:0;display:grid;gap:3px}
+.iss li{font-size:.76rem;padding:2px 6px;border-radius:4px}
+.iss .err{background:var(--err-soft);color:var(--err)} .iss .warn{background:var(--warn-soft);color:var(--warn)}
+
+.selbar{position:fixed;left:0;right:0;bottom:0;background:var(--ink);color:var(--bg);padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px));display:flex;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap;z-index:5}
+.selbar button{background:var(--bg);color:var(--ink);border:0;border-radius:5px;padding:5px 12px;font-weight:600}
+
+.overlay{position:fixed;inset:0;background:rgba(10,14,20,.55);display:grid;place-items:center;padding:16px;z-index:10}
+.modal{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;width:min(640px,100%);display:grid;gap:10px}
+.modal textarea{width:100%;min-height:220px;font-family:var(--f-data);font-size:.78rem;border:1px solid var(--line);border-radius:6px;padding:8px;background:var(--sunk)}
+.modal .row{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.modal p{margin:0;color:var(--muted);font-size:.84rem}
+.chart-modal{width:min(1400px,100%);max-height:calc(100% - 16px);grid-template-rows:auto auto auto minmax(0,1fr)}
+.chart-h{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+.chart-view{overflow:auto;border:1px solid var(--line);border-radius:6px;background:#ffffff;min-height:200px}
+.chart-view svg,.chart-view img{display:block;max-width:none}
+.msg{color:var(--err);font-size:.84rem}
+.msg.ok{color:var(--ok)}
+</style>
+
+<div class="wrap">
+  <div class="top">
+    <div>
+      <h1>Crew Pod Planner</h1>
+      <p class="sub" id="sub"></p>
+    </div>
+    <div class="stats" id="stats"></div>
+  </div>
+
+  <div class="toolbar">
+    <button class="btn primary" id="auto">Auto-assign</button>
+    <button class="btn" id="clear">Clear all</button>
+    <button class="btn" id="importBtn">Load CSV</button>
+    <button class="btn" id="exportBtn">Copy plan as CSV</button>
+    <button class="btn" id="chartBtn">Org chart</button>
+    <label class="toggle"><input type="checkbox" id="rankRule"> Block reports who outrank their PTL</label>
+    <span class="legend">S1 = highly skilled · S4 = least skilled · tap a person, then “Place here” (or drag)</span>
+  </div>
+
+  <details class="checks" id="checks" open></details>
+
+  <div class="board">
+    <aside>
+      <div class="panel" id="benchPanel"></div>
+      <div class="panel" id="ptlPanel"></div>
+    </aside>
+    <main id="crews"></main>
+  </div>
+</div>
+
+<div class="selbar" id="selbar" hidden></div>
+
+<div class="overlay" id="chart" hidden>
+  <div class="modal chart-modal" role="dialog" aria-modal="true" aria-labelledby="cTitle">
+    <div class="chart-h">
+      <h2 id="cTitle">Org chart</h2>
+      <div class="row">
+        <button class="btn primary" id="cCopyImg">Copy image</button>
+        <button class="btn" id="cShowImg">Show as image</button>
+        <button class="btn" id="cCopySvg">Copy SVG</button>
+        <button class="btn" id="cClose">Close</button>
+      </div>
+    </div>
+    <p id="cHint">Names, rank and location only. Compensation and skill are left out.</p>
+    <div class="msg" id="cMsg"></div>
+    <div class="chart-view" id="cView"></div>
+  </div>
+</div>
+
+<div class="overlay" id="modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="mTitle">
+    <h2 id="mTitle"></h2>
+    <p id="mHint"></p>
+    <textarea id="mText" spellcheck="false"></textarea>
+    <div class="msg" id="mMsg"></div>
+    <div class="row" id="mBtns"></div>
+  </div>
+</div>
+
+<script>
+/* ---------- sample data ---------- */
+const RANKS=['O','AO','AD','D','ED'];
+const RANK_NAME={O:'Officer',AO:'Authorized Officer',AD:'Associate Director',D:'Director',ED:'Executive Director'};
+const rn=p=>RANKS.indexOf(p.rank)+1;
+const CUR={Pune:v=>'₹'+v+'L',Zurich:v=>'CHF '+v+'k',London:v=>'£'+v+'k',Wroclaw:v=>'PLN '+v+'k'};
+const fmtComp=p=>(CUR[p.loc]||(v=>String(v)))(p.comp);
+const locCode=l=>({Pune:'PUN',Zurich:'ZRH',London:'LON',Wroclaw:'WRO'}[l]||l.slice(0,3).toUpperCase());
+
+function mulberry(a){return()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function sample(){
+  const r=mulberry(2026);
+  const ri=(a,b)=>a+Math.floor(r()*(b-a+1));
+  const BANDS={
+    Pune:{ED:[72,105],D:[46,68],AD:[29,44],AO:[18,28],O:[11,17]},
+    Zurich:{ED:[215,280],D:[168,210],AD:[138,165],AO:[112,135],O:[92,110]},
+    London:{ED:[145,190],D:[108,140],AD:[82,105],AO:[61,80],O:[48,60]},
+    Wroclaw:{ED:[410,520],D:[305,400],AD:[225,300],AO:[160,220],O:[118,158]}
+  };
+  const SK={ED:[1,2],D:[1,3],AD:[1,3],AO:[2,4],O:[3,4]};
+  const spec=[
+    ['Pune',[2,4,8,9,5],['Aarav Kulkarni','Priya Deshpande','Rohan Joshi','Sneha Patil','Vikram Iyer','Ananya Rao','Kunal Mehta','Neha Bhosale','Siddharth Nair','Pooja Gokhale','Arjun Shinde','Meera Pillai','Rahul Pawar','Ishita Chavan','Nikhil Menon','Tanvi Apte','Aditya Khare','Riya Sawant','Omkar Jadhav','Divya Hegde','Harsh Agarwal','Kavya Sharma','Yash Kale','Shruti Bapat','Manish Gupta','Aditi Ranade','Varun Thakur','Gauri Sathe']],
+    ['Zurich',[1,2,3,3,1],['Lukas Meier','Anna Keller','Marco Brunner','Sarah Huber','Jonas Frei','Laura Weber','David Schmid','Nina Baumann','Simon Gerber','Lea Steiner']],
+    ['London',[1,2,3,3,1],['James Whitfield','Olivia Hart','Daniel Okafor','Charlotte Reed','Tom Ashby','Grace Lin','Ben Carter','Amelia Shah','Harry Doyle','Sophie Clarke']],
+    ['Wroclaw',[1,2,3,4,2],['Piotr Nowak','Kasia Wiśniewska','Tomasz Zieliński','Ola Kowalczyk','Marcin Lewandowski','Agnieszka Wójcik','Paweł Kamiński','Magda Dąbrowska','Jakub Szymański','Ewa Woźniak','Michał Kozłowski','Zofia Mazur']]
+  ];
+  const out=[];let n=1;
+  spec.forEach(([loc,counts,names])=>{
+    let i=0;['ED','D','AD','AO','O'].forEach((rank,k)=>{
+      for(let c=0;c<counts[k];c++){const [a,b]=BANDS[loc][rank];const [s1,s2]=SK[rank];
+        out.push({id:'u'+(n++),name:names[i++],rank,loc,skill:ri(s1,s2),comp:ri(a,b)});}
+    });
+  });
+  return out;
+}
+function defaultPods(){
+  const p=[];[['A',4],['B',3],['C',3]].forEach(([c,k])=>{for(let i=1;i<=k;i++)p.push({id:c+i,name:c+i,crew:c,ptl:null})});
+  return p;
+}
+
+/* ---------- state ---------- */
+const KEY='crew-pod-planner-v1';
+let S={people:sample(),pods:defaultPods(),assign:{},rankRule:false,selected:null,locFilter:'All',sort:'skill'};
+try{const s=JSON.parse(localStorage.getItem(KEY)||'null');if(s&&s.people&&s.pods){Object.assign(S,s,{selected:null})}}catch(e){}
+function save(){try{localStorage.setItem(KEY,JSON.stringify({people:S.people,pods:S.pods,assign:S.assign,rankRule:S.rankRule,locFilter:S.locFilter,sort:S.sort}))}catch(e){}}
+
+const byId=id=>S.people.find(p=>p.id===id);
+const membersOf=podId=>S.people.filter(p=>S.assign[p.id]===podId);
+const ptlPods=pid=>S.pods.filter(x=>x.ptl===pid);
+const isPTL=pid=>S.pods.some(x=>x.ptl===pid);
+const bench=()=>S.people.filter(p=>!S.assign[p.id]&&!isPTL(p.id));
+const avg=a=>a.length?a.reduce((s,p)=>s+p.skill,0)/a.length:0;
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const first=n=>n.split(' ')[0];
+
+/* ---------- rules ---------- */
+function validate(){
+  const iss=[];const org=avg(S.people);
+  S.pods.forEach(pod=>{
+    const m=membersOf(pod.id);const ptl=byId(pod.ptl);
+    if(!ptl)iss.push({lvl:'err',pods:[pod.id],msg:'No pod tech lead assigned'});
+    if(m.length>7)iss.push({lvl:'err',pods:[pod.id],msg:`${m.length} heads — max is 7`});
+    if(m.length===0)iss.push({lvl:'warn',pods:[pod.id],msg:'No members yet'});
+    const locs=new Set([...m.map(p=>p.loc),...(ptl?[ptl.loc]:[])]);
+    if(locs.size>2)iss.push({lvl:'err',pods:[pod.id],msg:`Spans ${locs.size} locations (${[...locs].join(', ')}) — max is 2`});
+    if(m.length>=3){const a=avg(m),d=a-org;
+      if(Math.abs(d)>0.5)iss.push({lvl:'warn',pods:[pod.id],msg:d<0?`Talent-heavy: avg S${a.toFixed(1)} vs org S${org.toFixed(1)}`:`Talent-light: avg S${a.toFixed(1)} vs org S${org.toFixed(1)}`});}
+  });
+  [...new Set(S.pods.map(p=>p.ptl).filter(Boolean))].forEach(pid=>{
+    const ptl=byId(pid);if(!ptl)return;const pp=ptlPods(pid).map(x=>x.id);
+    const reps=S.people.filter(p=>pp.includes(S.assign[p.id]));
+    if(pp.length>3)iss.push({lvl:'err',pods:pp,msg:`${ptl.name} leads ${pp.length} pods — max is 3`});
+    if(reps.length<4||reps.length>9)iss.push({lvl:'err',pods:pp,msg:`${ptl.name} has ${reps.length} direct reports — needs 4–9`});
+    reps.forEach(r=>{
+      if(r.loc===ptl.loc&&r.comp>=ptl.comp)iss.push({lvl:'err',pods:[S.assign[r.id]],person:r.id,msg:`${r.name} (${fmtComp(r)}) earns ≥ PTL ${ptl.name} (${fmtComp(ptl)}), same location`});
+      if(S.rankRule&&rn(r)>rn(ptl))iss.push({lvl:'err',pods:[S.assign[r.id]],person:r.id,msg:`${r.name} (${r.rank}) outranks PTL ${ptl.name} (${ptl.rank})`});
+    });
+  });
+  return iss.sort((a,b)=>(a.lvl==='err'?0:1)-(b.lvl==='err'?0:1));
+}
+
+/* ---------- auto-assign ---------- */
+function autoAssign(){
+  S.assign={};S.pods.forEach(p=>p.ptl=null);
+  const locs=[...new Set(S.people.map(p=>p.loc))];
+  const locCount=l=>S.people.filter(p=>p.loc===l).length;
+  const maxComp={};locs.forEach(l=>maxComp[l]=Math.max(...S.people.filter(p=>p.loc===l).map(p=>p.comp)));
+  const score=p=>rn(p)*10+(5-p.skill)+2*p.comp/maxComp[p.loc];
+  const cands=S.people.filter(p=>rn(p)>=4).sort((a,b)=>score(b)-score(a));
+  const k=Math.min(cands.length,S.pods.length,Math.max(Math.ceil(S.pods.length/3),Math.ceil((S.people.length-S.pods.length)/8)));
+  const chosen=[];
+  locs.sort((a,b)=>locCount(b)-locCount(a)).forEach(l=>{const c=cands.find(p=>p.loc===l);if(c&&chosen.length<k)chosen.push(c)});
+  cands.forEach(c=>{if(chosen.length<k&&!chosen.includes(c))chosen.push(c)});
+  chosen.sort((a,b)=>locCount(b.loc)-locCount(a.loc)||score(b)-score(a));
+  const base=Math.floor(S.pods.length/chosen.length),extra=S.pods.length%chosen.length;
+  const pods=[...S.pods].sort((a,b)=>(a.crew+a.name).localeCompare(b.crew+b.name));
+  let i=0;chosen.forEach((p,j)=>{const n=Math.min(3,base+(j<extra?1:0));for(let t=0;t<n&&i<pods.length;t++)pods[i++].ptl=p.id;});
+  const ptlSet=new Set(chosen.map(p=>p.id));
+  const pool=S.people.filter(p=>!ptlSet.has(p.id)).sort((a,b)=>a.skill-b.skill||rn(b)-rn(a));
+  pool.forEach(p=>{
+    let best=null,bs=Infinity;
+    S.pods.forEach(pod=>{
+      const ptl=byId(pod.ptl);if(!ptl)return;
+      const m=membersOf(pod.id);const npods=ptlPods(ptl.id).length;
+      const reps=S.people.filter(x=>ptlPods(ptl.id).some(q=>q.id===S.assign[x.id])).length;
+      if(m.length>=Math.min(7,Math.ceil(9/npods))||reps>=9)return;
+      const ls=new Set([ptl.loc,...m.map(x=>x.loc)]);const newLoc=!ls.has(p.loc);
+      if(newLoc&&ls.size>=2)return;
+      if(p.loc===ptl.loc&&p.comp>=ptl.comp)return;
+      if(S.rankRule&&rn(p)>rn(ptl))return;
+      const s=m.length*10+m.reduce((t,x)=>t+(5-x.skill),0)+(newLoc?12:0);
+      if(s<bs){bs=s;best=pod.id}
+    });
+    if(best)S.assign[p.id]=best;
+  });
+  S.selected=null;
+}
+
+/* ---------- actions ---------- */
+function place(pid,podId){
+  S.pods.forEach(x=>{if(x.ptl===pid)x.ptl=null});
+  S.assign[pid]=podId;S.selected=null;render();
+}
+function unassign(pid){delete S.assign[pid];if(S.selected===pid)S.selected=null;render();}
+
+/* ---------- render ---------- */
+function personRow(p,opts={}){
+  const flag=opts.flagged?' flag':'';const sel=S.selected===p.id?' sel':'';
+  return `<li class="person${sel}${flag}" draggable="true" data-pid="${p.id}" title="${esc(RANK_NAME[p.rank]||p.rank)} · ${esc(p.loc)} · skill ${p.skill}">
+    <button class="pname" data-act="select" data-pid="${p.id}">${esc(p.name)}</button>
+    <span class="rk">${esc(p.rank)}</span><span class="lc">${esc(locCode(p.loc))}</span>
+    <span class="sk s${p.skill}">S${p.skill}</span><span class="cp">${esc(fmtComp(p))}</span>
+    ${opts.removable?`<button class="rm" data-act="remove" data-pid="${p.id}" aria-label="Move ${esc(p.name)} to bench">×</button>`:''}
+  </li>`;
+}
+function render(){
+  const iss=validate();const errs=iss.filter(i=>i.lvl==='err'),warns=iss.filter(i=>i.lvl==='warn');
+  const ptlIds=[...new Set(S.pods.map(p=>p.ptl).filter(Boolean))];
+  const placed=Object.keys(S.assign).length+ptlIds.length;const b=bench();
+  const org=avg(S.people);
+  document.getElementById('sub').textContent=`${S.people.length} people · 3 crews · ${S.pods.length} pods · org avg skill S${org.toFixed(2)}`;
+  document.getElementById('stats').innerHTML=`
+    <div class="stat"><b>${placed}/${S.people.length}</b><span>Placed</span></div>
+    <div class="stat"><b>${ptlIds.length}</b><span>PTLs</span></div>
+    <div class="stat"><b>${b.length}</b><span>Bench</span></div>
+    <div class="stat ${errs.length?'e':'g'}"><b>${errs.length}</b><span>Breaches</span></div>
+    <div class="stat ${warns.length?'w':'g'}"><b>${warns.length}</b><span>Warnings</span></div>`;
+  document.getElementById('rankRule').checked=S.rankRule;
+
+  const ch=document.getElementById('checks');const wasOpen=ch.open;
+  ch.innerHTML=`<summary>Rule checks — ${errs.length} breach${errs.length===1?'':'es'}, ${warns.length} warning${warns.length===1?'':'s'}</summary>`+
+    (iss.length?`<ul>${iss.map(i=>`<li><span class="tag ${i.lvl}">${i.lvl==='err'?'BREACH':'WARN'}</span>${i.pods.map(p=>`<a href="#pod-${p}">${p}</a>`).join(' ')}<span>${esc(i.msg)}</span></li>`).join('')}</ul>`:`<p class="allgood">All hard rules pass.</p>`);
+  ch.open=wasOpen;
+
+  /* bench */
+  const locs=['All',...new Set(S.people.map(p=>p.loc))];
+  let list=b.filter(p=>S.locFilter==='All'||p.loc===S.locFilter);
+  list.sort(S.sort==='skill'?(x,y)=>x.skill-y.skill||rn(y)-rn(x):S.sort==='rank'?(x,y)=>rn(y)-rn(x)||x.skill-y.skill:(x,y)=>x.name.localeCompare(y.name));
+  document.getElementById('benchPanel').innerHTML=`
+    <div class="bench-h"><h2>Bench <span class="num" style="color:var(--muted);font-weight:500">${b.length}</span></h2>
+      <select id="sortSel" aria-label="Sort bench"><option value="skill">By skill</option><option value="rank">By rank</option><option value="name">By name</option></select></div>
+    <div class="chips">${locs.map(l=>`<button class="chip" data-act="loc" data-loc="${esc(l)}" aria-pressed="${S.locFilter===l}">${esc(l)}</button>`).join('')}</div>
+    <ul class="bench" id="benchList">${list.map(p=>personRow(p)).join('')||'<li class="empty">Nobody on the bench here. Drop a person here to unassign.</li>'}</ul>`;
+  document.getElementById('sortSel').value=S.sort;
+
+  /* ptl panel */
+  document.getElementById('ptlPanel').innerHTML=`<h2 style="margin-bottom:6px">Pod tech leads</h2>`+(ptlIds.length?
+    `<div style="overflow-x:auto"><table class="ptls"><thead><tr><th>PTL</th><th>Pods</th><th>Reports</th><th>Comp</th></tr></thead><tbody>${ptlIds.map(id=>{const p=byId(id);const pp=ptlPods(id);const r=S.people.filter(x=>pp.some(q=>q.id===S.assign[x.id])).length;
+      return `<tr><td>${esc(p.name)}<br><span class="rk">${p.rank}</span> <span class="lc">${locCode(p.loc)}</span></td><td class="num ${pp.length>3?'bad':''}">${pp.map(x=>x.name).join(', ')}</td><td class="num ${r<4||r>9?'bad':''}">${r}</td><td class="num">${esc(fmtComp(p))}</td></tr>`}).join('')}</tbody></table></div>`
+    :'<p class="empty">Pick a PTL on each pod, or run Auto-assign.</p>');
+
+  /* crews */
+  const flagged=new Set(iss.filter(i=>i.person).map(i=>i.person));
+  const sel=S.selected?byId(S.selected):null;
+  const ptlOpts=[...S.people].sort((a,b)=>rn(b)-rn(a)||a.loc.localeCompare(b.loc)||b.comp-a.comp);
+  document.getElementById('crews').innerHTML=['A','B','C'].map(c=>{
+    const pods=S.pods.filter(p=>p.crew===c);const heads=pods.reduce((t,p)=>t+membersOf(p.id).length,0);
+    const leads=new Set(pods.map(p=>p.ptl).filter(Boolean)).size;
+    const cm=S.people.filter(p=>pods.some(q=>q.id===S.assign[p.id]));
+    return `<section class="crew" style="--c:var(--crew${c})"><div class="crew-h"><h2>Crew ${c}</h2>
+      <span>${pods.length} pods · ${heads} members · ${leads} PTL${leads===1?'':'s'}${cm.length?` · avg S${avg(cm).toFixed(2)}`:''}</span></div>
+      <div class="pods">${pods.map(pod=>{
+        const m=membersOf(pod.id).sort((x,y)=>x.skill-y.skill||rn(y)-rn(x));const ptl=byId(pod.ptl);
+        const pi=iss.filter(i=>i.pods.includes(pod.id));const bad=pi.some(i=>i.lvl==='err');
+        const locs=[...new Set([...(ptl?[ptl.loc]:[]),...m.map(p=>p.loc)])];
+        const a=avg(m);const pos=v=>((v-1)/3*100).toFixed(1);
+        return `<article class="pod${bad?' bad':''}" id="pod-${pod.id}" data-pod="${pod.id}">
+          <div class="pod-h"><span class="pod-name">${esc(pod.name)}</span><span class="count${m.length>7?' over':''}">${m.length}/7</span>
+            <select data-act="crew" data-pod="${pod.id}" aria-label="Crew for ${pod.name}">${['A','B','C'].map(x=>`<option ${x===pod.crew?'selected':''}>${x}</option>`).join('')}</select></div>
+          <label class="ptl-row"><span>PTL</span><select data-act="ptl" data-pod="${pod.id}">
+            <option value="">— choose a tech lead —</option>
+            ${ptlOpts.map(p=>{const n=ptlPods(p.id).length;const dis=n>=3&&pod.ptl!==p.id;return `<option value="${p.id}" ${pod.ptl===p.id?'selected':''} ${dis?'disabled':''}>${esc(p.name)} · ${p.rank} · ${locCode(p.loc)} · S${p.skill}${n&&pod.ptl!==p.id?` (leads ${n})`:''}</option>`}).join('')}
+          </select></label>
+          <div class="meta">${locs.map((l,i)=>`<span class="loc${locs.length>2?' over':''}">${locCode(l)}</span>`).join('')||'<span>no location yet</span>'}
+            <div class="sbar" title="Pod avg skill vs org avg (left = stronger)"><span class="ends" style="left:0">S1</span><span class="ends" style="right:0">S4</span>
+              <div class="track"></div><div class="org" style="left:${pos(org)}%"></div>${m.length?`<div class="dot" style="left:${pos(a)}%"></div>`:''}</div>
+            <span class="num">${m.length?'S'+a.toFixed(1):''}</span></div>
+          <ul class="mem">${m.map(p=>personRow(p,{removable:true,flagged:flagged.has(p.id)})).join('')}</ul>
+          ${sel&&S.assign[sel.id]!==pod.id?`<button class="add" data-act="add" data-pod="${pod.id}">Place ${esc(first(sel.name))} here</button>`:''}
+          ${pi.length?`<ul class="iss">${pi.map(i=>`<li class="${i.lvl}">${esc(i.msg)}</li>`).join('')}</ul>`:''}
+        </article>`}).join('')}</div></section>`;
+  }).join('');
+
+  const bar=document.getElementById('selbar');
+  if(sel){bar.hidden=false;bar.innerHTML=`<span>Placing <b>${esc(sel.name)}</b> · ${sel.rank} · ${esc(sel.loc)} · S${sel.skill} · ${esc(fmtComp(sel))}</span>${S.assign[sel.id]||isPTL(sel.id)?`<button data-act="tobench">Move to bench</button>`:''}<button data-act="cancel">Cancel</button>`}
+  else bar.hidden=true;
+  save();
+}
+
+/* ---------- events ---------- */
+document.addEventListener('click',e=>{
+  const t=e.target.closest('[data-act]');if(!t)return;const act=t.dataset.act;
+  if(act==='select'){S.selected=S.selected===t.dataset.pid?null:t.dataset.pid;render()}
+  else if(act==='remove')unassign(t.dataset.pid);
+  else if(act==='add'&&S.selected)place(S.selected,t.dataset.pod);
+  else if(act==='cancel'){S.selected=null;render()}
+  else if(act==='tobench'){const id=S.selected;S.pods.forEach(x=>{if(x.ptl===id)x.ptl=null});unassign(id)}
+  else if(act==='loc'){S.locFilter=t.dataset.loc;render()}
+});
+document.addEventListener('change',e=>{
+  const t=e.target;
+  if(t.id==='sortSel'){S.sort=t.value;render()}
+  else if(t.id==='rankRule'){S.rankRule=t.checked;render()}
+  else if(t.dataset.act==='crew'){S.pods.find(p=>p.id===t.dataset.pod).crew=t.value;render()}
+  else if(t.dataset.act==='ptl'){const pod=S.pods.find(p=>p.id===t.dataset.pod);const v=t.value||null;if(v)delete S.assign[v];pod.ptl=v;render()}
+});
+document.addEventListener('dragstart',e=>{const li=e.target.closest&&e.target.closest('.person');if(li){e.dataTransfer.setData('text/plain',li.dataset.pid);e.dataTransfer.effectAllowed='move'}});
+document.addEventListener('dragover',e=>{const z=e.target.closest('.pod,.bench');if(z){e.preventDefault();z.classList.add('drop')}});
+document.addEventListener('dragleave',e=>{const z=e.target.closest('.pod,.bench');if(z&&!z.contains(e.relatedTarget))z.classList.remove('drop')});
+document.addEventListener('drop',e=>{const z=e.target.closest('.pod,.bench');if(!z)return;e.preventDefault();const pid=e.dataTransfer.getData('text/plain');if(!pid||!byId(pid))return;
+  if(z.classList.contains('pod'))place(pid,z.dataset.pod);else{S.pods.forEach(x=>{if(x.ptl===pid)x.ptl=null});unassign(pid)}});
+
+document.getElementById('auto').onclick=()=>{autoAssign();render()};
+document.getElementById('clear').onclick=()=>{S.assign={};S.pods.forEach(p=>p.ptl=null);S.selected=null;render()};
+
+/* ---------- import / export ---------- */
+const M={el:document.getElementById('modal'),t:document.getElementById('mTitle'),h:document.getElementById('mHint'),x:document.getElementById('mText'),m:document.getElementById('mMsg'),b:document.getElementById('mBtns')};
+function openModal(title,hint,text,btns){M.t.textContent=title;M.h.textContent=hint;M.x.value=text;M.m.textContent='';M.m.className='msg';M.b.innerHTML='';
+  btns.forEach(([label,fn,primary])=>{const b=document.createElement('button');b.className='btn'+(primary?' primary':'');b.textContent=label;b.onclick=fn;M.b.appendChild(b)});M.el.hidden=false;M.x.focus()}
+const close=()=>{M.el.hidden=true};
+M.el.addEventListener('click',e=>{if(e.target===M.el)close()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(!document.getElementById('chart').hidden)document.getElementById('chart').hidden=true;else if(!M.el.hidden)close();else if(S.selected){S.selected=null;render()}}});
+
+const toCSV=rows=>rows.map(r=>r.map(v=>/[",\n]/.test(String(v))?`"${String(v).replace(/"/g,'""')}"`:v).join(',')).join('\n');
+document.getElementById('importBtn').onclick=()=>openModal('Load employee data',
+  'Paste CSV with a header row: name, rank, location, skill, comp. Rank is one of O, AO, AD, D, ED (or 1–5). Skill is 1–4. Comp is a number in local currency. Loading replaces the current plan.',
+  toCSV([['name','rank','location','skill','comp'],...S.people.map(p=>[p.name,p.rank,p.loc,p.skill,p.comp])]),
+  [['Restore sample data',()=>{S.people=sample();S.pods=defaultPods();S.assign={};S.selected=null;render();close()}],['Cancel',close],['Load',()=>{
+    try{const rows=parseCSV(M.x.value.trim());const h=rows.shift().map(x=>x.trim().toLowerCase());
+      const ix=k=>{const i=h.findIndex(x=>x.startsWith(k));if(i<0)throw new Error(`Missing “${k}” column`);return i};
+      const [ni,ri,li,si,ci]=[ix('name'),ix('rank'),ix('loc'),ix('skill'),ix('comp')];
+      const ppl=rows.filter(r=>r.length>1&&r[ni]).map((r,k)=>{let rank=r[ri].trim().toUpperCase();if(/^[1-5]$/.test(rank))rank=RANKS[+rank-1];
+        if(!RANKS.includes(rank))throw new Error(`Row ${k+2}: rank “${r[ri]}” must be O, AO, AD, D or ED`);
+        const skill=+r[si];if(!(skill>=1&&skill<=4))throw new Error(`Row ${k+2}: skill must be 1–4`);
+        const comp=+String(r[ci]).replace(/[^0-9.]/g,'');if(!comp)throw new Error(`Row ${k+2}: comp must be a number`);
+        return {id:'u'+(k+1),name:r[ni].trim(),rank,loc:r[li].trim(),skill:Math.round(skill),comp}});
+      if(!ppl.length)throw new Error('No rows found');
+      S.people=ppl;S.assign={};S.pods.forEach(p=>p.ptl=null);S.selected=null;render();close();
+    }catch(err){M.m.textContent=err.message}
+  },true]]);
+function parseCSV(s){const out=[];let row=[],f='',q=false;for(let i=0;i<s.length;i++){const c=s[i];
+  if(q){if(c==='"'){if(s[i+1]==='"'){f+='"';i++}else q=false}else f+=c}
+  else if(c==='"')q=true;else if(c===','){row.push(f);f=''}else if(c==='\n'||c==='\r'){if(c==='\r'&&s[i+1]==='\n')i++;row.push(f);out.push(row);row=[];f=''}else f+=c}
+  row.push(f);out.push(row);return out}
+
+document.getElementById('exportBtn').onclick=()=>{
+  const rows=[['name','rank','location','skill','comp','crew','pod','role','reports_to']];
+  S.pods.forEach(pod=>{const ptl=byId(pod.ptl);
+    if(ptl)rows.push([ptl.name,ptl.rank,ptl.loc,ptl.skill,ptl.comp,pod.crew,pod.name,'PTL','']);
+    membersOf(pod.id).forEach(p=>rows.push([p.name,p.rank,p.loc,p.skill,p.comp,pod.crew,pod.name,'Member',ptl?ptl.name:'']))});
+  bench().forEach(p=>rows.push([p.name,p.rank,p.loc,p.skill,p.comp,'','','Bench','']));
+  const txt=toCSV(rows);
+  openModal('Plan as CSV','Paste into Excel or Sheets. A PTL leading two pods appears once per pod.',txt,[['Close',close],['Copy',()=>{
+    navigator.clipboard.writeText(M.x.value).then(()=>{M.m.className='msg ok';M.m.textContent='Copied.'}).catch(()=>{M.x.select();M.m.textContent='Copy was blocked here — the text is selected, press Ctrl/Cmd+C.'})},true]]);
+};
+
+/* ---------- org chart (no comp, no skill) ---------- */
+function orgSVG(){
+  const W=210,PAD=28,LH=18,CREWGAP=40,LEADGAP=18,PODGAP=12;
+  const COL={A:'#a86a12',B:'#0d766d',C:'#83398a'},INK='#16202c',MUTED='#5b6778',LINE='#b9c3cf',FONT='Archivo, Helvetica, Arial, sans-serif';
+  const trunc=(s,n)=>s.length>n?s.slice(0,n-1)+'…':s;
+  const groups=['A','B','C'].map(c=>{
+    const pods=S.pods.filter(p=>p.crew===c).sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
+    const m=new Map();pods.forEach(p=>{const k=p.ptl||'';if(!m.has(k))m.set(k,[]);m.get(k).push(p)});
+    return {crew:c,leads:[...m].map(([k,ps])=>({ptl:byId(k),pods:ps}))};
+  }).filter(g=>g.leads.length);
+  // x positions
+  let x=PAD;const podX={};
+  groups.forEach((g,gi)=>{if(gi)x+=CREWGAP-PODGAP;
+    g.leads.forEach((l,li)=>{if(li)x+=LEADGAP-PODGAP;l.pods.forEach(p=>{podX[p.id]=x;x+=W+PODGAP});l.cx=(podX[l.pods[0].id]+podX[l.pods.at(-1).id]+W)/2;});
+    g.cx=(g.leads[0].cx+g.leads.at(-1).cx)/2;});
+  const width=Math.max(x-PODGAP+PAD,520);
+  const rootY=PAD,rootH=56,crewY=rootY+rootH+40,crewH=46,ptlY=crewY+crewH+36,ptlH=50,podY=ptlY+ptlH+36;
+  const podH=p=>36+Math.max(1,membersOf(p.id).length)*LH+10;
+  const maxPod=Math.max(...S.pods.map(podH));
+  const height=podY+maxPod+PAD+22;
+  const elbow=(x1,y1,x2,y2)=>{const my=(y1+y2)/2;return `<path d="M${x1} ${y1} V${my} H${x2} V${y2}" fill="none" stroke="${LINE}" stroke-width="1.5"/>`};
+  const t=(x,y,s,o={})=>`<text x="${x}" y="${y}" font-family="${FONT}" font-size="${o.size||12}" font-weight="${o.w||400}" fill="${o.fill||INK}" text-anchor="${o.a||'start'}">${esc(s)}</text>`;
+  let out='';
+  const placedCount=S.people.length-bench().length;
+  const rw=360,rx=width/2-rw/2;
+  out+=`<rect x="${rx}" y="${rootY}" width="${rw}" height="${rootH}" rx="8" fill="${INK}"/>`;
+  out+=t(width/2,rootY+24,'Org structure',{size:16,w:800,fill:'#ffffff',a:'middle'});
+  out+=t(width/2,rootY+43,`${groups.length} crews · ${S.pods.length} pods · ${placedCount} people`,{size:11.5,fill:'#c9d3df',a:'middle'});
+  groups.forEach(g=>{
+    const c=COL[g.crew],cw=170,cx=g.cx-cw/2;
+    out+=elbow(width/2,rootY+rootH,g.cx,crewY);
+    const crewPods=S.pods.filter(p=>p.crew===g.crew);
+    const heads=crewPods.reduce((s,p)=>s+membersOf(p.id).length,0)+new Set(crewPods.map(p=>p.ptl).filter(Boolean)).size;
+    out+=`<rect x="${cx}" y="${crewY}" width="${cw}" height="${crewH}" rx="7" fill="${c}"/>`;
+    out+=t(g.cx,crewY+20,`Crew ${g.crew}`,{size:15,w:800,fill:'#ffffff',a:'middle'});
+    out+=t(g.cx,crewY+36,`${crewPods.length} pods · ${heads} people`,{size:11,fill:'#ffffff',a:'middle'});
+    g.leads.forEach(l=>{
+      const lw=Math.min(W+20,Math.max(W,l.pods.length*W*.9)),lx=l.cx-lw/2;
+      out+=elbow(g.cx,crewY+crewH,l.cx,ptlY);
+      out+=`<rect x="${lx}" y="${ptlY}" width="${lw}" height="${ptlH}" rx="7" fill="#ffffff" stroke="${c}" stroke-width="2"/>`;
+      if(l.ptl){out+=t(l.cx,ptlY+21,trunc(l.ptl.name,26),{size:13.5,w:700,a:'middle'});
+        out+=t(l.cx,ptlY+38,`Pod Tech Lead · ${l.ptl.rank} · ${l.ptl.loc}`,{size:11,fill:MUTED,a:'middle'});}
+      else{out+=t(l.cx,ptlY+30,'PTL not assigned',{size:12.5,w:600,fill:'#bf3328',a:'middle'});}
+      l.pods.forEach(p=>{
+        const px=podX[p.id],m=membersOf(p.id).sort((a,b)=>rn(b)-rn(a)||a.name.localeCompare(b.name)),h=podH(p);
+        out+=elbow(l.cx,ptlY+ptlH,px+W/2,podY);
+        out+=`<rect x="${px}" y="${podY}" width="${W}" height="${h}" rx="7" fill="#ffffff" stroke="${LINE}"/>`;
+        out+=`<path d="M${px} ${podY+7} a7 7 0 0 1 7 -7 H${px+W-7} a7 7 0 0 1 7 7 V${podY+28} H${px} Z" fill="${c}" fill-opacity=".14"/>`;
+        out+=t(px+10,podY+19,`Pod ${p.name}`,{size:13,w:800,fill:c});
+        const locs=[...new Set(m.map(q=>locCode(q.loc)))].join(' / ');
+        out+=t(px+W-10,podY+19,`${m.length} member${m.length===1?'':'s'}${locs?' · '+locs:''}`,{size:10.5,fill:MUTED,a:'end'});
+        if(!m.length)out+=t(px+10,podY+50,'No members',{size:11.5,fill:MUTED});
+        m.forEach((q,i)=>{const y=podY+48+i*LH;
+          out+=t(px+10,y,trunc(q.name,21),{size:11.5});
+          out+=t(px+W-10,y,`${q.rank} · ${locCode(q.loc)}`,{size:10.5,fill:MUTED,a:'end'});});
+      });
+    });
+  });
+  const bn=bench().length;
+  out+=t(PAD,height-PAD+6,`Locations: PUN Pune · ZRH Zurich · LON London · WRO Wroclaw${bn?` · ${bn} on bench (not shown)`:''}`,{size:10.5,fill:MUTED});
+  return {w:Math.ceil(width),h:Math.ceil(height),svg:`<svg xmlns="http://www.w3.org/2000/svg" width="${Math.ceil(width)}" height="${Math.ceil(height)}" viewBox="0 0 ${Math.ceil(width)} ${Math.ceil(height)}"><rect width="100%" height="100%" fill="#ffffff"/>${out}</svg>`};
+}
+function svgToPNG(o){return new Promise((res,rej)=>{const img=new Image();img.onload=()=>{const c=document.createElement('canvas');c.width=o.w*2;c.height=o.h*2;const x=c.getContext('2d');x.scale(2,2);x.fillStyle='#fff';x.fillRect(0,0,o.w,o.h);x.drawImage(img,0,0,o.w,o.h);c.toBlob(b=>b?res(b):rej(new Error('PNG failed')),'image/png')};img.onerror=()=>rej(new Error('Render failed'));img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(o.svg)})}
+const C={el:document.getElementById('chart'),v:document.getElementById('cView'),m:document.getElementById('cMsg')};
+let chartData=null;
+const cMsg=(s,ok)=>{C.m.textContent=s;C.m.className='msg'+(ok?' ok':'')};
+document.getElementById('chartBtn').onclick=()=>{chartData=orgSVG();C.v.innerHTML=chartData.svg;cMsg('');document.getElementById('cShowImg').textContent='Show as image';C.el.hidden=false};
+document.getElementById('cClose').onclick=()=>{C.el.hidden=true};
+C.el.addEventListener('click',e=>{if(e.target===C.el)C.el.hidden=true});
+document.getElementById('cCopyImg').onclick=()=>{
+  try{const item=new ClipboardItem({'image/png':svgToPNG(chartData)});
+    navigator.clipboard.write([item]).then(()=>cMsg('Image copied. Paste it into PowerPoint, Teams or email.',true)).catch(()=>cMsg('Copying images is blocked here. Use “Show as image”, then right-click or long-press it to save.'));
+  }catch(e){cMsg('Copying images is blocked here. Use “Show as image”, then right-click or long-press it to save.')}
+};
+document.getElementById('cShowImg').onclick=async e=>{
+  const b=e.currentTarget;
+  if(C.v.querySelector('img')){C.v.innerHTML=chartData.svg;b.textContent='Show as image';cMsg('');return}
+  try{const blob=await svgToPNG(chartData);const url=await new Promise(r=>{const f=new FileReader();f.onload=()=>r(f.result);f.readAsDataURL(blob)});
+    C.v.innerHTML=`<img src="${url}" width="${chartData.w}" height="${chartData.h}" alt="Org structure chart">`;b.textContent='Show as diagram';
+    cMsg('Right-click (or long-press on a phone) the image and choose Save image.',true);
+  }catch(err){cMsg('Could not render the image: '+err.message)}
+};
+document.getElementById('cCopySvg').onclick=()=>{
+  navigator.clipboard.writeText(chartData.svg).then(()=>cMsg('SVG copied. Paste into a .svg file or tools like Figma and draw.io.',true)).catch(()=>cMsg('Copy was blocked here. Try “Show as image” instead.'));
+};
+
+if(!Object.keys(S.assign).length&&!S.pods.some(p=>p.ptl))autoAssign();
+render();
+</script>
